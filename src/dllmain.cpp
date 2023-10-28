@@ -23,6 +23,9 @@ int iInjectionDelay;
 int iAspectFix;
 int iHUDFix;
 int iMovieFix;
+int iLauncherConfigCtrlType = 5;
+int iLauncherConfigRegion = 0;
+int iLauncherConfigLanguage = 0;
 
 // Variables
 float fNewX;
@@ -265,6 +268,10 @@ void ReadConfig()
     inipp::get_value(ini.sections["Fix FMVs"], "Enabled", bMovieFix);
     iMovieFix = (int)bMovieFix;
 
+    inipp::get_value(ini.sections["Launcher Config"], "CtrlType", iLauncherConfigCtrlType);
+    inipp::get_value(ini.sections["Launcher Config"], "Region", iLauncherConfigRegion);
+    inipp::get_value(ini.sections["Launcher Config"], "Language", iLauncherConfigLanguage);
+
     // Log config parse
     LOG_F(INFO, "Config Parse: iInjectionDelay: %dms", iInjectionDelay);
     LOG_F(INFO, "Config Parse: bCustomResolution: %d", bCustomResolution);
@@ -276,6 +283,9 @@ void ReadConfig()
     LOG_F(INFO, "Config Parse: bMouseSensitivity: %d", bMouseSensitivity);
     LOG_F(INFO, "Config Parse: fMouseSensitivity: %.2f", fMouseSensitivity);
     LOG_F(INFO, "Config Parse: bAspectFix: %d", bAspectFix);
+    LOG_F(INFO, "Config Parse: iLauncherConfigCtrlType: %d", iLauncherConfigCtrlType);
+    LOG_F(INFO, "Config Parse: iLauncherConfigRegion: %d", iLauncherConfigRegion);
+    LOG_F(INFO, "Config Parse: iLauncherConfigLanguage: %d", iLauncherConfigLanguage);
     //LOG_F(INFO, "Config Parse: bHUDFix: %d", bHUDFix);
     //LOG_F(INFO, "Config Parse: bMovieFix: %d", bMovieFix);
 
@@ -660,12 +670,91 @@ void Miscellaneous()
     }  
 }
 
+using NHT_COsContext_SetControllerID_Fn = void (*)(int controllerType);
+NHT_COsContext_SetControllerID_Fn NHT_COsContext_SetControllerID = nullptr;
+void NHT_COsContext_SetControllerID_Hook(int controllerType)
+{
+    NHT_COsContext_SetControllerID(iLauncherConfigCtrlType);
+}
+
+using MGS3_COsContext__InitializeSKUandLang_Fn = void(__fastcall*)(void*, void*, int, int);
+MGS3_COsContext__InitializeSKUandLang_Fn MGS3_COsContext__InitializeSKUandLang = nullptr;
+void __fastcall MGS3_COsContext__InitializeSKUandLang_Hook(void* thisptr, void* unused, int sku, int lang)
+{
+    MGS3_COsContext__InitializeSKUandLang(thisptr, unused, iLauncherConfigRegion, iLauncherConfigLanguage);
+}
+
+using MGS2_COsContext__InitializeSKUandLang_Fn = void(__fastcall*)(void*, void*, int);
+MGS2_COsContext__InitializeSKUandLang_Fn MGS2_COsContext__InitializeSKUandLang = nullptr;
+void __fastcall MGS2_COsContext__InitializeSKUandLang_Hook(void* thisptr, void* unused, int lang)
+{
+    MGS2_COsContext__InitializeSKUandLang(thisptr, unused, iLauncherConfigLanguage);
+}
+
+void LauncherConfigOverride()
+{
+    // Certain config such as language/button style is passed from launcher to game via arguments
+    // When game EXE gets ran directly this config is left at default (english game, xbox buttons)
+    // If launcher argument isn't detected we'll allow defaults to be changed by hooking the engine functions responsible for them
+
+    HMODULE engineModule = GetModuleHandleA("Engine.dll");
+    if (!engineModule)
+    {
+        LOG_F(INFO, "MGS 2 | MGS3: Launcher Config: Failed to get Engine.dll module handle");
+        return;
+    }
+
+    LPWSTR commandLine = GetCommandLineW();
+
+    bool hasCtrltype = wcsstr(commandLine, L"-ctrltype") != nullptr;
+    bool hasRegion = wcsstr(commandLine, L"-region") != nullptr;
+    bool hasLang = wcsstr(commandLine, L"-lan") != nullptr;
+
+    if (!hasCtrltype)
+    {
+        NHT_COsContext_SetControllerID = (decltype(NHT_COsContext_SetControllerID))GetProcAddress(engineModule, "NHT_COsContext_SetControllerID");
+        if (NHT_COsContext_SetControllerID)
+        {
+            Memory::HookIAT(baseModule, "Engine.dll", NHT_COsContext_SetControllerID, NHT_COsContext_SetControllerID_Hook);
+            LOG_F(INFO, "MGS 2 | MGS 3: Launcher Config: Hooked NHT_COsContext_SetControllerID");
+        }
+        else
+        {
+            LOG_F(INFO, "MGS 2 | MGS3: Launcher Config: Failed to locate NHT_COsContext_SetControllerID import");
+        }
+    }
+
+    if (!hasRegion && !hasLang)
+    {
+        MGS3_COsContext__InitializeSKUandLang = (decltype(MGS3_COsContext__InitializeSKUandLang))GetProcAddress(engineModule, "?InitializeSKUandLang@COsContext@@QEAAXHH@Z");
+        if (MGS3_COsContext__InitializeSKUandLang)
+        {
+            Memory::HookIAT(baseModule, "Engine.dll", MGS3_COsContext__InitializeSKUandLang, MGS3_COsContext__InitializeSKUandLang_Hook);
+            LOG_F(INFO, "MGS 3: Launcher Config: Hooked COsContext::InitializeSKUandLang");
+        }
+        else
+        {
+            MGS2_COsContext__InitializeSKUandLang = (decltype(MGS2_COsContext__InitializeSKUandLang))GetProcAddress(engineModule, "?InitializeSKUandLang@COsContext@@QEAAXH@Z");
+            if (MGS2_COsContext__InitializeSKUandLang)
+            {
+                Memory::HookIAT(baseModule, "Engine.dll", MGS2_COsContext__InitializeSKUandLang, MGS2_COsContext__InitializeSKUandLang_Hook);
+                LOG_F(INFO, "MGS 2: Launcher Config: Hooked COsContext::InitializeSKUandLang");
+            }
+            else
+            {
+                LOG_F(INFO, "MGS 2 | MGS3: Launcher Config: Failed to locate COsContext::InitializeSKUandLang import");
+            }
+        }
+    }
+}
+
 DWORD __stdcall Main(void*)
 {
     Logging();
     ReadConfig();
     DetectGame();
     CustomResolution();
+    LauncherConfigOverride();
     Sleep(iInjectionDelay);
     ScaleEffects();
     AspectFOVFix();
