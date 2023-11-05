@@ -1075,7 +1075,7 @@ void __fastcall MGS2_COsContext__InitializeSKUandLang_Hook(void* thisptr, void* 
 
 void LauncherConfigOverride()
 {
-    // Try creating steam_appid.txt if it doesn't exist, so that game EXE could be launched directly in future runs
+    // Try creating steam_appid.txt if it doesn't exist, to help allow game EXE to be launched directly in future runs
     if (iSteamAppId)
     {
         WCHAR modulePath[MAX_PATH];
@@ -1088,7 +1088,7 @@ void LauncherConfigOverride()
         {
             if (!std::filesystem::exists(steamAppidPath))
             {
-                LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Creating steam_appid.txt to allow direct EXE launches.");
+                LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: Creating steam_appid.txt to allow direct EXE launches.");
                 std::ofstream steamAppidOut(steamAppidPath);
                 if (steamAppidOut.is_open())
                 {
@@ -1097,16 +1097,17 @@ void LauncherConfigOverride()
                 }
                 if (std::filesystem::exists(steamAppidPath))
                 {
-                    LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: steam_appid.txt created successfully.");
+                    LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: steam_appid.txt created successfully.");
                 }
                 else
                 {
-                    LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Failed to create steam_appid.txt.");
+                    LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: steam_appid.txt creation failed.");
                 }
             }
         }
-        catch (const std::exception&)
+        catch (const std::exception& ex)
         {
+            LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: Launcher Config: steam_appid.txt creation failed (exception: %s)", ex.what());
         }
     }
 
@@ -1131,13 +1132,23 @@ void LauncherConfigOverride()
         NHT_COsContext_SetControllerID = decltype(NHT_COsContext_SetControllerID)(GetProcAddress(engineModule, "NHT_COsContext_SetControllerID"));
         if (NHT_COsContext_SetControllerID)
         {
-            Memory::HookIAT(baseModule, "Engine.dll", NHT_COsContext_SetControllerID, NHT_COsContext_SetControllerID_Hook);
-            LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: Hooked NHT_COsContext_SetControllerID");
+            if (Memory::HookIAT(baseModule, "Engine.dll", NHT_COsContext_SetControllerID, NHT_COsContext_SetControllerID_Hook))
+            {
+                LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: Hooked NHT_COsContext_SetControllerID, overriding with CtrlType setting from INI");
+            }
+            else
+            {
+                LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: Failed to apply NHT_COsContext_SetControllerID IAT hook");
+            }
         }
         else
         {
-            LOG_F(INFO, "MG/MG2 | MGS 2 | MGS3: Launcher Config: Failed to locate NHT_COsContext_SetControllerID import");
+            LOG_F(INFO, "MG/MG2 | MGS 2 | MGS3: Launcher Config: Failed to locate NHT_COsContext_SetControllerID export");
         }
+    }
+    else
+    {
+        LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: -ctrltype specified on command-line, skipping INI override");
     }
 
     if (!hasRegion && !hasLang)
@@ -1145,22 +1156,38 @@ void LauncherConfigOverride()
         MGS3_COsContext__InitializeSKUandLang = decltype(MGS3_COsContext__InitializeSKUandLang)(GetProcAddress(engineModule, "?InitializeSKUandLang@COsContext@@QEAAXHH@Z"));
         if (MGS3_COsContext__InitializeSKUandLang)
         {
-            Memory::HookIAT(baseModule, "Engine.dll", MGS3_COsContext__InitializeSKUandLang, MGS3_COsContext__InitializeSKUandLang_Hook);
-            LOG_F(INFO, "MG/MG2 | MGS 3: Launcher Config: Hooked COsContext::InitializeSKUandLang");
+            if (Memory::HookIAT(baseModule, "Engine.dll", MGS3_COsContext__InitializeSKUandLang, MGS3_COsContext__InitializeSKUandLang_Hook))
+            {
+                LOG_F(INFO, "MG/MG2 | MGS 3: Launcher Config: Hooked COsContext::InitializeSKUandLang, overriding with Region/Language settings from INI");
+            }
+            else
+            {
+                LOG_F(INFO, "MG/MG2 | MGS 3: Launcher Config: Failed to apply COsContext::InitializeSKUandLang IAT hook");
+            }
         }
         else
         {
             MGS2_COsContext__InitializeSKUandLang = decltype(MGS2_COsContext__InitializeSKUandLang)(GetProcAddress(engineModule, "?InitializeSKUandLang@COsContext@@QEAAXH@Z"));
             if (MGS2_COsContext__InitializeSKUandLang)
             {
-                Memory::HookIAT(baseModule, "Engine.dll", MGS2_COsContext__InitializeSKUandLang, MGS2_COsContext__InitializeSKUandLang_Hook);
-                LOG_F(INFO, "MGS 2: Launcher Config: Hooked COsContext::InitializeSKUandLang");
+                if (Memory::HookIAT(baseModule, "Engine.dll", MGS2_COsContext__InitializeSKUandLang, MGS2_COsContext__InitializeSKUandLang_Hook))
+                {
+                    LOG_F(INFO, "MGS 2: Launcher Config: Hooked COsContext::InitializeSKUandLang, overriding with Language setting from INI");
+                }
+                else
+                {
+                    LOG_F(INFO, "MGS 2: Launcher Config: Failed to apply COsContext::InitializeSKUandLang IAT hook");
+                }
             }
             else
             {
-                LOG_F(INFO, "MG/MG2 | MGS 2 | MGS3: Launcher Config: Failed to locate COsContext::InitializeSKUandLang import");
+                LOG_F(INFO, "MG/MG2 | MGS 2 | MGS3: Launcher Config: Failed to locate COsContext::InitializeSKUandLang export");
             }
         }
+    }
+    else
+    {
+        LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Launcher Config: -region/-lan specified on command-line, skipping INI override");
     }
 }
 
