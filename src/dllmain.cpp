@@ -58,6 +58,7 @@ string sGameName;
 string sExePath;
 string sGameVersion;
 string sFixVer = "0.8";
+int iSteamAppId;
 
 // MGS 2: Aspect Ratio Hook
 DWORD64 MGS2_GameplayAspectReturnJMP;
@@ -483,15 +484,18 @@ void DetectGame()
 
     if (sExeName == "METAL GEAR SOLID2.exe")
     {
-        LOG_F(INFO, "Detected game is: Metal Gear Solid 2 HD");
+        iSteamAppId = 2131640;
+        LOG_F(INFO, "Detected game is: Metal Gear Solid 2 HD (app %d)", iSteamAppId);
     }
     else if (sExeName == "METAL GEAR SOLID3.exe")
     {
-        LOG_F(INFO, "Detected game is: Metal Gear Solid 3 HD");
+        iSteamAppId = 2131650;
+        LOG_F(INFO, "Detected game is: Metal Gear Solid 3 HD (app %d)", iSteamAppId);
     }
     else if (sExeName == "METAL GEAR.exe")
     {
-        LOG_F(INFO, "Detected game is: Metal Gear / Metal Gear 2 (MSX)");
+        iSteamAppId = 2131680;
+        LOG_F(INFO, "Detected game is: Metal Gear / Metal Gear 2 (MSX) (app %d)", iSteamAppId);
     }
 }
 
@@ -1071,6 +1075,41 @@ void __fastcall MGS2_COsContext__InitializeSKUandLang_Hook(void* thisptr, void* 
 
 void LauncherConfigOverride()
 {
+    // Try creating steam_appid.txt if it doesn't exist, so that game EXE could be launched directly in future runs
+    if (iSteamAppId)
+    {
+        WCHAR modulePath[MAX_PATH];
+        GetModuleFileNameW(baseModule, modulePath, MAX_PATH);
+
+        const std::filesystem::path appDir = modulePath;
+        const std::filesystem::path steamAppidPath = appDir.parent_path() / "steam_appid.txt";
+
+        try
+        {
+            if (!std::filesystem::exists(steamAppidPath))
+            {
+                LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Creating steam_appid.txt to allow direct EXE launches.");
+                std::ofstream steamAppidOut(steamAppidPath);
+                if (steamAppidOut.is_open())
+                {
+                    steamAppidOut << iSteamAppId;
+                    steamAppidOut.close();
+                }
+                if (std::filesystem::exists(steamAppidPath))
+                {
+                    LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: steam_appid.txt created successfully.");
+                }
+                else
+                {
+                    LOG_F(INFO, "MG/MG2 | MGS 2 | MGS 3: Failed to create steam_appid.txt.");
+                }
+            }
+        }
+        catch (const std::exception&)
+        {
+        }
+    }
+
     // Certain config such as language/button style is normally passed from launcher to game via arguments
     // When game EXE gets ran directly this config is left at default (english game, xbox buttons)
     // If launcher argument isn't detected we'll allow defaults to be changed by hooking the engine functions responsible for them
